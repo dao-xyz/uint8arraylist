@@ -1,19 +1,22 @@
-import { concat } from 'uint8arrays/concat'
-import { equals } from 'uint8arrays/equals'
+/* import { concat } from 'uint8arrays/concat'
+import { equals } from 'uint8arrays/equals' */
 import { allocUnsafe, alloc } from 'uint8arrays/alloc'
 
 const symbol = Symbol.for('@achingbrain/uint8arraylist')
 
 export type Appendable = Uint8ArrayList | Uint8Array
 
-function findBufAndOffset (bufs: Uint8Array[], index: number) {
+function findBufAndOffset (bufs: Uint8ArrayEntry, index: number) {
   if (index == null || index < 0) {
     throw new RangeError('index is out of bounds')
   }
 
   let offset = 0
 
-  for (const buf of bufs) {
+  let curr: Uint8ArrayEntry | undefined = bufs;
+  while(curr)
+  {
+    const buf = curr.arr;
     const bufEnd = offset + buf.byteLength
 
     if (index < bufEnd) {
@@ -24,6 +27,8 @@ function findBufAndOffset (bufs: Uint8Array[], index: number) {
     }
 
     offset = bufEnd
+
+    curr = curr.next;
   }
 
   throw new RangeError('index is out of bounds')
@@ -45,16 +50,18 @@ function findBufAndOffset (bufs: Uint8Array[], index: number) {
 export function isUint8ArrayList (value: any): value is Uint8ArrayList {
   return Boolean(value?.[symbol])
 }
+type Uint8ArrayEntry = { arr: Uint8Array, next?: Uint8ArrayEntry };
 
 export class Uint8ArrayList implements Iterable<Uint8Array> {
-  private bufs: Uint8Array[]
+  private bufsHead: Uint8ArrayEntry | undefined;
+  private bufsTail: Uint8ArrayEntry | undefined;
+
   public length: number
 
   constructor (...data: Appendable[]) {
     // Define symbol
     Object.defineProperty(this, symbol, { value: true })
 
-    this.bufs = []
     this.length = 0
 
     if (data.length > 0) {
@@ -63,7 +70,12 @@ export class Uint8ArrayList implements Iterable<Uint8Array> {
   }
 
   * [Symbol.iterator] () {
-    yield * this.bufs
+    let curr = this.bufsHead;
+    while(curr)
+    {
+      yield curr.arr;
+      curr = curr.next
+    }
   }
 
   get byteLength () {
@@ -82,19 +94,27 @@ export class Uint8ArrayList implements Iterable<Uint8Array> {
    */
   appendAll (bufs: Appendable[]) {
     let length = 0
-
-    for (const buf of bufs) {
-      if (buf instanceof Uint8Array) {
-        length += buf.byteLength
-        this.bufs.push(buf)
-      } else if (isUint8ArrayList(buf)) {
-        length += buf.byteLength
-        this.bufs.push(...buf.bufs)
-      } else {
-        throw new Error('Could not append value, must be an Uint8Array or a Uint8ArrayList')
+      for (const buf of bufs) {
+        if (buf instanceof Uint8Array) {
+          if(this.bufsTail)
+          {
+            length += buf.byteLength
+            this.bufsTail = this.bufsTail!.next = {arr: buf}
+          }
+          else {
+            this.bufsHead = this.bufsTail = {arr: buf}
+          }
+         
+        } else if (isUint8ArrayList(buf)) {
+          length += buf.byteLength
+          this.bufsTail!.next = buf.bufsHead
+          this.bufsTail = buf.bufsTail;
+        } else {
+          throw new Error('Could not append value, must be an Uint8Array or a Uint8ArrayList')
+        }
       }
-    }
-
+    
+ 
     this.length += length
   }
 
@@ -114,10 +134,12 @@ export class Uint8ArrayList implements Iterable<Uint8Array> {
     for (const buf of bufs.reverse()) {
       if (buf instanceof Uint8Array) {
         length += buf.byteLength
-        this.bufs.unshift(buf)
+        this.bufsHead = { arr: buf, next: this.bufsHead }
       } else if (isUint8ArrayList(buf)) {
         length += buf.byteLength
-        this.bufs.unshift(...buf.bufs)
+        buf.bufsTail = this.bufsHead
+        this.bufsHead = buf.bufsHead;
+          
       } else {
         throw new Error('Could not prepend value, must be an Uint8Array or a Uint8ArrayList')
       }
@@ -130,7 +152,7 @@ export class Uint8ArrayList implements Iterable<Uint8Array> {
    * Read the value at `index`
    */
   get (index: number) {
-    const res = findBufAndOffset(this.bufs, index)
+    const res = findBufAndOffset(this.bufsHead!, index)
 
     return res.buf[res.index]
   }
@@ -139,7 +161,7 @@ export class Uint8ArrayList implements Iterable<Uint8Array> {
    * Set the value at `index` to `value`
    */
   set (index: number, value: number) {
-    const res = findBufAndOffset(this.bufs, index)
+    const res = findBufAndOffset(this.bufsHead!, index)
 
     res.buf[res.index] = value
   }
@@ -175,18 +197,18 @@ export class Uint8ArrayList implements Iterable<Uint8Array> {
 
     // if consuming all bytes, skip iterating
     if (bytes === this.byteLength) {
-      this.bufs = []
+      this.bufsHead = this.bufsTail = undefined
       this.length = 0
       return
     }
 
-    while (this.bufs.length > 0) {
-      if (bytes >= this.bufs[0].byteLength) {
-        bytes -= this.bufs[0].byteLength
-        this.length -= this.bufs[0].byteLength
-        this.bufs.shift()
+    while (this.bufsHead != null) {
+      if (bytes >= this.bufsHead.arr.byteLength) {
+        bytes -= this.bufsHead.arr.byteLength
+        this.length -= this.bufsHead.arr.byteLength
+        this.bufsHead = this.bufsHead.next;
       } else {
-        this.bufs[0] = this.bufs[0].subarray(bytes)
+        this.bufsHead.arr = this.bufsHead.arr.subarray(bytes)
         this.length -= bytes
         break
       }
@@ -200,9 +222,10 @@ export class Uint8ArrayList implements Iterable<Uint8Array> {
    * - note this is different to the behaviour of Node Buffers.
    */
   slice (beginInclusive?: number, endExclusive?: number): Uint8Array {
-    const { bufs, length } = this._subList(beginInclusive, endExclusive)
+    /*const { bufs, length } = this._subList(beginInclusive, endExclusive)
 
-    return concat(bufs, length)
+    return concat(bufs, length)*/
+    throw new Error("TODO")
   }
 
   /**
@@ -212,13 +235,14 @@ export class Uint8ArrayList implements Iterable<Uint8Array> {
    * internally this is a no-copy operation otherwise it is a copy operation.
    */
   subarray (beginInclusive?: number, endExclusive?: number): Uint8Array {
-    const { bufs, length } = this._subList(beginInclusive, endExclusive)
+    /*const { bufs, length } = this._subList(beginInclusive, endExclusive)
 
     if (bufs.length === 1) {
       return bufs[0]
     }
 
-    return concat(bufs, length)
+    return concat(bufs, length)*/
+    throw new Error("TODO")
   }
 
   /**
@@ -227,17 +251,18 @@ export class Uint8ArrayList implements Iterable<Uint8Array> {
    * This is a no-copy operation.
    */
   sublist (beginInclusive?: number, endExclusive?: number): Uint8ArrayList {
-    const { bufs, length } = this._subList(beginInclusive, endExclusive)
+    /* const { bufs, length } = this._subList(beginInclusive, endExclusive)
 
     const list = new Uint8ArrayList()
     list.length = length
     // don't loop, just set the bufs
     list.bufs = bufs
 
-    return list
+    return list */
+    throw new Error("TODO")
   }
 
-  private _subList (beginInclusive?: number, endExclusive?: number) {
+   /*private _subList (beginInclusive?: number, endExclusive?: number) {
     beginInclusive = beginInclusive ?? 0
     endExclusive = endExclusive ?? this.length
 
@@ -325,7 +350,7 @@ export class Uint8ArrayList implements Iterable<Uint8Array> {
 
     return { bufs, length: endExclusive - beginInclusive }
   }
-
+ */
   indexOf (search: Uint8ArrayList | Uint8Array, offset: number = 0): number {
     if (!isUint8ArrayList(search) && !(search instanceof Uint8Array)) {
       throw new TypeError('The "value" argument must be a Uint8ArrayList or Uint8Array')
@@ -550,7 +575,7 @@ export class Uint8ArrayList implements Iterable<Uint8Array> {
   }
 
   equals (other: any): other is Uint8ArrayList {
-    if (other == null) {
+    /* if (other == null) {
       return false
     }
 
@@ -568,7 +593,8 @@ export class Uint8ArrayList implements Iterable<Uint8Array> {
       }
     }
 
-    return true
+    return true */
+    throw new Error("TODO")
   }
 
   /**
@@ -576,7 +602,7 @@ export class Uint8ArrayList implements Iterable<Uint8Array> {
    * method if you know the total size of all the Uint8Arrays ahead of time.
    */
   static fromUint8Arrays (bufs: Uint8Array[], length?: number): Uint8ArrayList {
-    const list = new Uint8ArrayList()
+   /* const list = new Uint8ArrayList()
     list.bufs = bufs
 
     if (length == null) {
@@ -585,7 +611,8 @@ export class Uint8ArrayList implements Iterable<Uint8Array> {
 
     list.length = length
 
-    return list
+    return list*/
+    throw new Error("TODO")
   }
 }
 

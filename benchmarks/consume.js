@@ -6,7 +6,6 @@ $ npx playwright-test benchmarks/sublist.js --runner benchmark
 */
 
 import Benchmark from 'benchmark'
-import BufferList from 'bl/BufferList.js'
 import { Uint8ArrayList } from '../dist/src/index.js'
 
 const bufs = []
@@ -17,22 +16,15 @@ for (let j = 0; j < 10; j++) {
 
 
 /* 
-shallowSlice BufferList x 366,491 ops/sec ±0.55% (92 runs sampled)
-sublist Uint8ArrayList x 1,800,391 ops/sec ±0.77% (98 runs sampled)
+consume Uint8ArrayList x 4,200,770 ops/sec ±0.60% (92 runs sampled)
 */
 
 const suite = new Benchmark.Suite()
 
 suite
-  .add('shallowSlice BufferList', () => {
-    const list = new BufferList(bufs)
-    list.shallowSlice()
-    list.shallowSlice(3, 10)
-  })
-  .add('sublist Uint8ArrayList', () => {
+  .add('consume Uint8ArrayList', () => {
     const list = new Uint8ArrayList(...bufs)
-    list.sublist()
-    list.sublist(3, 10)
+    list.consume(list.length)
   })
 
 suite

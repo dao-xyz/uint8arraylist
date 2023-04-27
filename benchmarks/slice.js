@@ -14,6 +14,11 @@ for (let j = 0; j < 10; j++) {
   bufs.push(Uint8Array.from([j, 1, 2, 3, 4, 5]))
 }
 
+/* 
+slice BufferList x 679,899 ops/sec ±0.51% (99 runs sampled)
+slice Uint8ArrayList x 1,685,271 ops/sec ±0.52% (93 runs sampled)
+*/
+
 const suite = new Benchmark.Suite()
 
 suite

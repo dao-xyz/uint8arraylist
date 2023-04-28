@@ -32,7 +32,7 @@ suite
     const list = new Uint8ArrayList()
 
     for (const buf of bufs) {
-      list.append(buf)
+      list.append2(buf)
     }
 
     

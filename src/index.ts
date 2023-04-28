@@ -55,13 +55,9 @@ type Uint8ArrayEntry = { arr: Uint8Array, next?: Uint8ArrayEntry };
 export class Uint8ArrayList implements Iterable<Uint8Array> {
   private bufsHead: Uint8ArrayEntry | undefined;
   private bufsTail: Uint8ArrayEntry | undefined;
-
-  public length: number
-
   constructor (...data: Appendable[]) {
     // Define symbol
-    Object.defineProperty(this, symbol, { value: true })
-
+    (this as any)[symbol] = true
     this.length = 0
 
     if (data.length > 0) {
@@ -89,33 +85,50 @@ export class Uint8ArrayList implements Iterable<Uint8Array> {
     this.appendAll(bufs)
   }
 
+  append2(buf: Uint8Array) {
+    if(this.bufsTail)
+          {
+        this.length += buf.byteLength
+        this.bufsTail = this.bufsTail!.next = {arr: buf}
+      }
+      else {
+        this.length += buf.byteLength
+        this.bufsHead = this.bufsTail = {arr: buf}
+      }
+  }
+
+
   /**
    * Add all `bufs` to the end of this Uint8ArrayList
    */
   appendAll (bufs: Appendable[]) {
-    let length = 0
       for (const buf of bufs) {
         if (buf instanceof Uint8Array) {
           if(this.bufsTail)
           {
-            length += buf.byteLength
+            this.length += buf.byteLength
             this.bufsTail = this.bufsTail!.next = {arr: buf}
           }
           else {
+            this.length += buf.byteLength
             this.bufsHead = this.bufsTail = {arr: buf}
           }
          
         } else if (isUint8ArrayList(buf)) {
-          length += buf.byteLength
-          this.bufsTail!.next = buf.bufsHead
-          this.bufsTail = buf.bufsTail;
+          if(this.bufsTail)
+          {
+            this.length += buf.byteLength
+            this.bufsTail!.next = buf.bufsHead
+            this.bufsTail = buf.bufsTail;
+          }
+          else {
+            this.bufsTail = buf.bufsTail;
+            this.bufsHead = buf.bufsHead;
+          }
         } else {
           throw new Error('Could not append value, must be an Uint8Array or a Uint8ArrayList')
         }
-      }
-    
- 
-    this.length += length
+      } 
   }
 
   /**
